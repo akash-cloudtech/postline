@@ -1,55 +1,61 @@
-   # Social Media Automation Pipeline
+# Postline (social media automation)
 
-   ## Goal
-   Fully automated pipeline: generate a general-topic + tech-topic video script
-   every morning at 7 AM, print both, I record raw video on my phone (no editing),
-   the pipeline detects the new video, generates platform-specific captions/
-   hashtags, asks for my approval, then posts to TikTok, YouTube, Instagram,
-   Facebook, LinkedIn, Threads, and X.
+## Goal
+Long term: I record raw vertical videos on my phone (no editing); the app
+detects them, writes platform-specific captions/hashtags, asks for my
+approval, and posts to Instagram, TikTok, YouTube, Facebook, LinkedIn,
+Threads and X.
 
-   CURRENT SCOPE (narrowed Nov 2026): Instagram only. Target flow:
-     Phone: record -> add to public shared Google Photos album "To Post"
-     Mac:   check album -> new video found -> download -> Gemini caption
-            -> post as Instagram Reel (captioned) AND Instagram Story
-   Facebook is out of scope: user has a personal profile (no Page), the API
-   can't post to profiles, and in-app IG->FB cross-posting skips API posts.
-   Files: pipeline.py (loop + state in data/state.json), gphotos_fetch.py
-   (scrapes the public album page; the Photos API can't read user albums since
-   Mar 2025), ig_post.py (Reel publishing). Token is an "EAA" Unified-login
-   token, so the API host is graph.facebook.com; IG user id 17841464196783143.
-   Posting: use ig_post.post_reel_from_url() with the Google Photos "=dv"
-   URL (Meta fetches it). Direct rupload of full-length phone videos fails
-   with ProcessingFailedError (small clips work). caption_gen.py writes
-   caption + 5 hashtags + city-level location (Gemini; model fallbacks and
-   CAPTION_STYLE in .env). First Reel posted 2026-11-26.
-   APP ("Postline", Nov 2026): `./venv/bin/python server.py` -> http://localhost:8420.
-   server.py = FastAPI API + background worker (album check, captions, approval
-   queue, scheduled posting); store.py = SQLite data/postline.db; settings in
-   data/settings.json; log in data/postline.log. UI is the Claude Design export
-   ui/Postline.dc.html + ui/support.js (dc runtime, React from unpkg). Only the
-   <script data-dc-script> logic was rewritten to call /api/*; the markup is the
-   design's. Nothing posts without approval. pipeline.py is the old CLI loop -
-   don't run it alongside the server. Script ideas page still shows sample data.
-   Morning schedule/scripts/printing (Phase 1) is on hold; Gemini captions,
-   approval step, launchd scheduling, and other platforms come later.
+**Current scope: Instagram only (Reel + Story).**
+```
+Phone: record -> add to public shared Google Photos album "SocialMedia"
+Mac:   server finds new video -> download -> Gemini caption/hashtags/city
+       -> Review queue (approve / schedule / reject) -> Reel + Story
+```
 
-   ## Stack decisions
-   - Language: Python
-   - AI provider: Google Gemini API (free tier) — chosen for cost, not Claude API
-   - Scheduling: macOS launchd (not cron)
-   - Printing: CUPS via `lp` command to a network printer
-   - Runs on: Mac mini M4
+## Run
+`./venv/bin/python server.py` -> http://localhost:8420 (see README.md).
+Only one server at a time (two would both post). Don't restart it while a
+post is in progress (check data/postline.log); interrupted posts are marked
+Failed/"Interrupted" on startup and need a manual Retry, never auto-repost.
 
-   ## Status
-   - Phase 1 (topic fetch -> script -> PDF -> print) is scaffolded: see
-     main.py, topic_fetch.py, script_writer.py, render_pdf.py, print_job.py
-   - Phase 2 (video detection, captions/hashtags, approval, posting) not started
+## Code map
+- server.py: FastAPI API + background worker (album checks, caption jobs,
+  scheduled posts, posting). Settings in data/settings.json, log in
+  data/postline.log.
+- store.py: SQLite data/postline.db (items + events).
+- caption_gen.py: Gemini caption/title/hashtags with model fallbacks; GPS ->
+  city (Nominatim, rounded coords); recording date (.mov ISO date or .mp4 mvhd).
+- gphotos_fetch.py: scrapes the public album page (the Photos API can't read
+  user albums since Mar 2025). Short links must be resolved with a non-browser
+  UA. `=dv` on a base URL downloads the video.
+- ig_post.py: publishing. Token is an "EAA" Unified-login token -> host
+  graph.facebook.com; IG user id 17841464196783143.
+- ui/Postline.dc.html + ui/support.js: Claude Design export (dc runtime, React
+  from unpkg). Only the `<script data-dc-script>` logic was rewritten to call
+  /api/*; keep the markup as designed.
 
-   ## Next steps
-   - Confirm Google Photos API access/scope actually works for auto-detecting
-     new phone videos
-   - Build caption/hashtag generator (structured JSON output per platform)
-   - Build approval interface
-   - Wire up posting for YouTube Shorts first and validate the full loop;
-     add the remaining platforms (TikTok, Instagram, Facebook, LinkedIn,
-     Threads, X) once that's solid
+## Hard-won facts (don't re-learn these)
+- Reels: post by URL (post_reel_from_url with the Google Photos `=dv` link).
+  Direct rupload of full-length phone videos fails with ProcessingFailedError.
+- Stories: >60 s publishes fail (error_subcode 2207032) -> trim to 59 s with
+  `avconvert` and upload. Stories can't carry captions.
+- Facebook is out of scope: personal profile only (no Page), apps can't post
+  to profiles, and in-app IG->FB cross-posting ignores API posts.
+- Gemini: 2.5 models are closed to new users; free-tier models are often
+  503/overloaded -> fallback list in .env. Lite models sometimes emit stray
+  CJK characters (prompt forbids it).
+
+## Stack decisions
+- Python; Gemini API (free tier) for captions, chosen for cost
+- macOS launchd for running the server (not set up yet)
+- Runs on a Mac mini M4
+
+## Status / next steps
+- Done: full album -> caption -> review -> Reel + Story flow, scheduling,
+  history/retry, interrupted-post recovery. Repo: github.com/akash-devsecops/postline
+  (also pushed to akash-cloudtech/postline).
+- Next: launchd job so the server starts at login; token-expiry handling;
+  Script ideas page is still sample data (morning script/print feature on
+  hold; old files removed Nov 2026, recoverable from git history).
+- Later: more platforms (Facebook Page, TikTok, YouTube Shorts, ...).
